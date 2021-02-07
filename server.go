@@ -35,6 +35,12 @@ type captchaHandler struct {
 // random number to make browsers refetch an image instead of loading it from
 // cache).
 //
+// By default, the Server serves audio in English language. To serve audio
+// captcha in one of the other supported languages, append "lang" value, for
+// example, "?lang=ru".
+func Server(imgWidth, imgHeight int) *captchaHandler {
+	return &captchaHandler{imgWidth, imgHeight}
+}
 
 func (h *captchaHandler) serveFastHTTP(ctx *fasthttp.RequestCtx, id, ext, lang string, download bool) error {
 	ctx.Response.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
