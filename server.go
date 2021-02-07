@@ -6,10 +6,9 @@ package captcha
 
 import (
 	"bytes"
-	"net/http"
+	"github.com/valyala/fasthttp"
 	"path"
 	"strings"
-	"time"
 )
 
 type captchaHandler struct {
@@ -36,52 +35,54 @@ type captchaHandler struct {
 // random number to make browsers refetch an image instead of loading it from
 // cache).
 //
-// By default, the Server serves audio in English language. To serve audio
-// captcha in one of the other supported languages, append "lang" value, for
-// example, "?lang=ru".
-func Server(imgWidth, imgHeight int) http.Handler {
-	return &captchaHandler{imgWidth, imgHeight}
-}
 
-func (h *captchaHandler) serve(w http.ResponseWriter, r *http.Request, id, ext, lang string, download bool) error {
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
+func (h *captchaHandler) serveFastHTTP(ctx *fasthttp.RequestCtx, id, ext, lang string, download bool) error {
+	ctx.Response.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	ctx.Response.Header.Set("Pragma", "no-cache")
+	ctx.Response.Header.Set("Expires", "0")
 
 	var content bytes.Buffer
 	switch ext {
 	case ".png":
-		w.Header().Set("Content-Type", "image/png")
-		WriteImage(&content, id, h.imgWidth, h.imgHeight)
+		ctx.Response.Header.Set("Content-Type", "image/png")
+		_ = WriteImage(&content, id, h.imgWidth, h.imgHeight)
 	case ".wav":
-		w.Header().Set("Content-Type", "audio/x-wav")
-		WriteAudio(&content, id, lang)
+		ctx.Response.Header.Set("Content-Type", "audio/x-wav")
+		_ = WriteAudio(&content, id, lang)
 	default:
 		return ErrNotFound
 	}
 
 	if download {
-		w.Header().Set("Content-Type", "application/octet-stream")
+		ctx.Response.Header.Set("Content-Type", "application/octet-stream")
 	}
-	http.ServeContent(w, r, id+ext, time.Time{}, bytes.NewReader(content.Bytes()))
+
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetBody(content.Bytes())
+
+	//ctx.SetStatusCode(http.StatusOK)
+	//var out io.Writer
+	//out = ctx.Response.BodyWriter()
+	//io.Copy(out, &content)
+
 	return nil
 }
 
-func (h *captchaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	dir, file := path.Split(r.URL.Path)
+func (h *captchaHandler) ServeFastHTTP(ctx *fasthttp.RequestCtx) {
+	dir, file := path.Split(string(ctx.URI().Path()))
 	ext := path.Ext(file)
 	id := file[:len(file)-len(ext)]
 	if ext == "" || id == "" {
-		http.NotFound(w, r)
+		ctx.NotFound()
 		return
 	}
-	if r.FormValue("reload") != "" {
+	if len(ctx.FormValue("reload")) > 0 {
 		Reload(id)
 	}
-	lang := strings.ToLower(r.FormValue("lang"))
+	lang := strings.ToLower(string(ctx.FormValue("lang")))
 	download := path.Base(dir) == "download"
-	if h.serve(w, r, id, ext, lang, download) == ErrNotFound {
-		http.NotFound(w, r)
+	if h.serveFastHTTP(ctx, id, ext, lang, download) == ErrNotFound {
+		ctx.NotFound()
 	}
 	// Ignore other errors.
 }
